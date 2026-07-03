@@ -1,0 +1,17 @@
+# 日志文件（运行时生成）
+*.log
+
+# 测试输出
+_test_out.txt
+
+# 编辑器临时文件
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# 系统文件
+Thumbs.db
+desktop.ini
+.DS_Store
