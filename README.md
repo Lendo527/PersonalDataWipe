@@ -330,6 +330,12 @@ A: 可以正常使用。所有清理都是针对"个人数据"，不影响系统
 
 ---
 
+## 更新日志
+
+详见 [VERSION](./VERSION) 文件中的版本历史注释，每个版本的变更说明都记录在其中。
+
+---
+
 ## 反馈与贡献
 
 - Issue: [提交问题](https://github.com/Lendo527/PersonalDataWipe/issues)
