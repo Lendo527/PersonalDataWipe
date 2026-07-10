@@ -16,6 +16,7 @@ $script:Stats = @{ Deleted = 0; Failed = 0; Skipped = 0 }
 $script:ModuleStats = @{}  # 每模块独立统计
 $script:OpCounter = 0      # 全局操作计数器
 $script:TestMode = $false  # 测试模式：只扫描不删除
+$script:TranscriptActive = $false  # Start-Transcript 是否启动成功（影响末尾日志提示）
 
 # 通过环境变量 WIPE_TEST_MODE=1 触发测试模式（绝对安全，不删除任何文件）
 if ($env:WIPE_TEST_MODE -eq "1") {
@@ -31,7 +32,7 @@ if ($env:WIPE_TEST_MODE -eq "1") {
     }
 }
 
-# Ctrl+C 中断时确保日志正常关闭
+# Ctrl+C 中断时尽力关闭日志（注：ConsoleHost 会先拦截 Ctrl+C，CancelKeyPress 不一定触发，仅作为兜底）
 $null = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
     try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
 } -SupportEvent
@@ -104,12 +105,13 @@ function Remove-PathSafe {
         [int]$Retries = 3,
         [string]$Stage = "Unknown"
     )
-    $script:OpCounter++
-    $opId = "[#{0,4:D4}]" -f $script:OpCounter
+    # 空路径不递增 OpCounter，避免日志序号跳号
     if (-not $Path) {
         $script:Stats.Skipped++
         return $false
     }
+    $script:OpCounter++
+    $opId = "[#{0,4:D4}]" -f $script:OpCounter
     if (-not (Test-Path -LiteralPath $Path)) {
         Write-Log "  $opId [SKIP] 路径不存在: $Path" -Level "Info"
         $script:Stats.Skipped++
@@ -138,7 +140,7 @@ function Remove-PathSafe {
             }
         }
     }
-    return $false
+    # 循环内每个分支都已 return，此处不可达，省略冗余 return
 }
 
 # ========== 辅助：清除注册表键 ==========
@@ -195,8 +197,9 @@ function Remove-PathWildcard {
 # ========== 启动操作日志 ==========
 try {
     Start-Transcript -Path $script:LogFile -Force -ErrorAction Stop | Out-Null
+    $script:TranscriptActive = $true
 } catch {
-    Write-Log "日志启动失败（继续执行）: $($_.Exception.Message)" -Level "Warning"
+    Write-Log "日志启动失败（继续执行，但末尾不会输出日志路径）: $($_.Exception.Message)" -Level "Warning"
 }
 
 # ========== 主入口 ==========
@@ -280,11 +283,10 @@ function Invoke-M01Temp {
             }
         }
     }
-    # 缩略图与图标缓存
-    @(
-        "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\ThumbCache",
-        "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\iconcache"
-    ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M01 Temp" }
+    # 缩略图与图标缓存（实际为 Explorer 目录下的 thumbcache_*.db / iconcache_*.db 散落文件）
+    Remove-PathWildcard -Pattern "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\thumbcache_*.db" -Stage "M01 Temp"
+    Remove-PathWildcard -Pattern "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\iconcache_*.db" -Stage "M01 Temp"
+    Remove-PathSafe -Path "$env:LOCALAPPDATA\IconCache.db" -Stage "M01 Temp"
     Write-Log "[M01] 完成" "Success"
 }
 
@@ -302,7 +304,11 @@ function Invoke-M02RecycleBin {
                 if ($script:TestMode) {
                     Write-Log "  [TEST] 回收站项: $($item.Name)" -Level "Warning"
                 } else {
-                    try { Remove-Item -LiteralPath $item.Path -Recurse -Force -ErrorAction Stop } catch { }
+                    try {
+                        Remove-Item -LiteralPath $item.Path -Recurse -Force -ErrorAction Stop
+                    } catch {
+                        Add-ErrorItem -Stage "M02 RecycleBin" -Message "COM 删除失败: $($item.Path) - $($_.Exception.Message)"
+                    }
                 }
             }
         }
@@ -362,13 +368,15 @@ function Invoke-M03Traces {
 # ---------- M04: 命令行历史与 PROFILE ----------
 function Invoke-M04CmdHistory {
     Write-Log "[M04] 清理命令行历史与 PROFILE..." "Step"
-    # PowerShell PSReadLine 历史
+    # PowerShell PSReadLine 历史（Windows PowerShell 5.1 与 PowerShell 7 路径不同，均需清理）
     Remove-PathSafe -Path "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt" -Stage "M04 PSReadLine"
+    Remove-PathSafe -Path "$env:APPDATA\Microsoft\PowerShell\PSReadLine\ConsoleHost_history.txt" -Stage "M04 PSReadLine"
+    Remove-PathSafe -Path "$env:APPDATA\Microsoft\PowerShell\PSReadLine\Visual Studio Code_host_history.txt" -Stage "M04 PSReadLine"
     # CMD 历史（注册表）
     Remove-RegistryKey -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU" -Stage "M04 RunMRU"
-    # Windows Terminal 配置
+    # Windows Terminal 配置（正式版与预览版统一删除整个 LocalState，含 settings.json 与 state.json 等会话痕迹）
     @(
-        "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json",
+        "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState",
         "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M04 WinTerm" }
     # Snip & Sketch
@@ -558,7 +566,9 @@ function Invoke-M13PasswordMgr {
     Remove-RegistryKey -Path "HKCU:\Software\Lamantine" -Stage "M13 StickyPwd"
     # 1Password
     Stop-ProcessAndWait -ProcessNames @("1Password", "1Password-BrowserSupport") -TimeoutSeconds 8 | Out-Null
-    @("$env:APPDATA\1Password", "$env:LOCALAPPDATA\1Password", "$env:LOCALAPPDATA\Packages\AgileBits.1Password_*") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M13 1Password" }
+    @("$env:APPDATA\1Password", "$env:LOCALAPPDATA\1Password") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M13 1Password" }
+    # 1Password UWP 包目录名形如 AgileBits.1Password_8wekyb3d8bbwe，需先展开通配符再删（Remove-PathSafe 用 -LiteralPath 不支持通配）
+    Get-Item -Path "$env:LOCALAPPDATA\Packages\AgileBits.1Password_*" -ErrorAction SilentlyContinue | ForEach-Object { Remove-PathSafe -Path $_.FullName -Stage "M13 1Password" }
     # Bitwarden
     Stop-ProcessAndWait -ProcessNames @("Bitwarden") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\Bitwarden", "$env:LOCALAPPDATA\Bitwarden") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M13 Bitwarden" }
@@ -586,8 +596,8 @@ function Invoke-M14DbTools {
         "$env:APPDATA\DBeaverData\credentials-config.json",
         "$env:APPDATA\DBeaverData\workspace6\.metadata"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M14 DBeaver" }
-    # SSMS
-    Stop-ProcessAndWait -ProcessNames @("Ssms", "ssms") -TimeoutSeconds 8 | Out-Null
+    # SSMS（Stop-Process -Name 大小写不敏感，Ssms 与 ssms 等价，仅需其一）
+    Stop-ProcessAndWait -ProcessNames @("Ssms") -TimeoutSeconds 8 | Out-Null
     Remove-PathSafe -Path "$env:APPDATA\Microsoft\SQL Server Management Studio" -Stage "M14 SSMS"
     Get-ChildItem "HKCU:\Software\Microsoft\SQL Server Management Studio" -ErrorAction SilentlyContinue | ForEach-Object {
         Get-ChildItem $_.PSPath -ErrorAction SilentlyContinue | ForEach-Object {
@@ -684,9 +694,13 @@ function Invoke-M16GameCreative {
 # ---------- M17: 网络隧道工具 ----------
 function Invoke-M17NetworkTunnel {
     Write-Log "[M17] 清理网络隧道工具..." "Step"
-    # OpenVPN
+    # OpenVPN（可能装在 Program Files 或 Program Files (x86)）
     Stop-ProcessAndWait -ProcessNames @("openvpn", "openvpn-gui") -TimeoutSeconds 8 | Out-Null
-    @("$env:USERPROFILE\OpenVPN", "$env:PROGRAMFILES\OpenVPN\config") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M17 OpenVPN" }
+    @(
+        "$env:USERPROFILE\OpenVPN",
+        "$env:ProgramFiles\OpenVPN\config",
+        "${env:ProgramFiles(x86)}\OpenVPN\config"
+    ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M17 OpenVPN" }
     # WireGuard
     Stop-ProcessAndWait -ProcessNames @("wireguard") -TimeoutSeconds 8 | Out-Null
     Remove-PathSafe -Path "$env:APPDATA\WireGuard" -Stage "M17 WG"
@@ -759,7 +773,7 @@ function Invoke-M19DevTools {
     # Visual Studio Pro
     Stop-ProcessAndWait -ProcessNames @("devenv") -TimeoutSeconds 8 | Out-Null
     @("$env:LOCALAPPDATA\Microsoft\VisualStudio", "$env:LOCALAPPDATA\Microsoft\VSCommon", "$env:APPDATA\Microsoft\VisualStudio\OnlineSettingsCache", "$env:LOCALAPPDATA\Microsoft\IdentityService") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 VSPro" }
-    Remove-PathSafe -Path "$env:USERPROFILE\.nuget\packages" -Stage "M19 VSPro"
+    # 注意：.nuget\packages 是构建产物缓存（不含个人数据/凭证，可重新下载），不再删除以避免下次构建重新下载数 GB
     # Docker
     $dockerConfig = "$env:USERPROFILE\.docker\config.json"
     if (Test-Path $dockerConfig) {
@@ -788,7 +802,7 @@ function Invoke-M19DevTools {
         "$env:USERPROFILE\.azure\msal_http_cache.json",
         "$env:USERPROFILE\.config\gcloud\credentials.db",
         "$env:USERPROFILE\.config\gcloud\legacy_credentials",
-        "$env:USERPROFILE\AppData\Roaming\gcloud\credentials.db",
+        "$env:APPDATA\gcloud\credentials.db",
         "$env:USERPROFILE\.kube\config",
         "$env:USERPROFILE\.kube\cache"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Cloud" }
@@ -820,20 +834,17 @@ function Invoke-M19DevTools {
         "$env:USERPROFILE\.config\containers",
         "$env:USERPROFILE\.minikube",
         "$env:USERPROFILE\.VirtualBox",
-        "$env:USERPROFILE\AppData\Roaming\VMware"
+        "$env:APPDATA\VMware"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 VM" }
-    # Android 开发（含签名 keystore！）
+    # Android 开发（含签名 keystore！注意：.gradle\caches 与 daemon 是构建产物，不含凭证，不再删除）
     Stop-ProcessAndWait -ProcessNames @("studio64", "android") -TimeoutSeconds 8 | Out-Null
     @(
         "$env:USERPROFILE\.android",
-        "$env:USERPROFILE\.gradle\gradle.properties",
-        "$env:USERPROFILE\.gradle\caches",
-        "$env:USERPROFILE\.gradle\daemon"
+        "$env:USERPROFILE\.gradle\gradle.properties"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Android" }
-    # Java/Maven
+    # Java/Maven（注意：.m2\repository 是构建产物缓存，不含凭证，保留；仅删 settings.xml 与 .java\.userPrefs）
     @(
         "$env:USERPROFILE\.m2\settings.xml",
-        "$env:USERPROFILE\.m2\repository\.cache",
         "$env:USERPROFILE\.java\.userPrefs"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Maven" }
     # Rust / Cargo（crates.io token）
@@ -842,7 +853,7 @@ function Invoke-M19DevTools {
         "$env:USERPROFILE\.cargo\credentials.toml"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Cargo" }
     # Helm（仓库凭据）
-    @("$env:USERPROFILE\AppData\Roaming\helm\repositories.yaml", "$env:USERPROFILE\AppData\Roaming\helm\registry.json") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Helm" }
+    @("$env:APPDATA\helm\repositories.yaml", "$env:APPDATA\helm\registry.json") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Helm" }
     # Terraform（Cloud token）
     @("$env:USERPROFILE\.terraform.d\credentials.tfrc.json", "$env:USERPROFILE\.terraform.d\terraform.rc") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Terraform" }
     # Vagrant（boxes + insecure key）
@@ -856,7 +867,7 @@ function Invoke-M19DevTools {
         "$env:USERPROFILE\.jupyter\nbconfig"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Conda" }
     # Go telemetry / Go env
-    @("$env:USERPROFILE\.config\go\telemetry", "$env:USERPROFILE\AppData\Roaming\go-env") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Go" }
+    @("$env:USERPROFILE\.config\go\telemetry", "$env:APPDATA\go-env") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Go" }
     # Postman / Insomnia（API 测试工具 token）
     Stop-ProcessAndWait -ProcessNames @("Postman") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\Postman", "$env:LOCALAPPDATA\Postman") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Postman" }
@@ -913,17 +924,37 @@ function Invoke-M20MicrosoftUltimate {
     }
     # 5. 微软注册表
     Write-Log "[M20.5] 清理微软账户注册表..." "Step"
-    @("HKCU:\Software\Microsoft\IdentityCRL", "HKCU:\Software\Microsoft\IdentityStore", "HKCU:\Software\Microsoft\Internet Explorer\Main\Identity") | ForEach-Object { Remove-RegistryKey -Path $_ -Stage "M20.5 Reg" }
+    # IdentityCRL / IdentityStore 是子键，直接删除
+    @("HKCU:\Software\Microsoft\IdentityCRL", "HKCU:\Software\Microsoft\IdentityStore") | ForEach-Object { Remove-RegistryKey -Path $_ -Stage "M20.5 Reg" }
+    # IE Main\Identity 通常是 DWORD 值而非子键，Test-Path 对值返回 false 会静默跳过，需用 Remove-ItemProperty
+    $ieMainPath = "HKCU:\Software\Microsoft\Internet Explorer\Main"
+    if (Test-Path $ieMainPath) {
+        if ($script:TestMode) {
+            if (Get-ItemProperty -Path $ieMainPath -Name "Identity" -ErrorAction SilentlyContinue) {
+                Write-Log "  [TEST][REGVAL] $ieMainPath\Identity" -Level "Warning"
+                $script:Stats.Deleted++
+            } else {
+                $script:Stats.Skipped++
+            }
+        } else {
+            try {
+                Remove-ItemProperty -Path $ieMainPath -Name "Identity" -ErrorAction Stop
+                Write-Log "  [#regval] [REGDELVAL] $ieMainPath\Identity" -Level "Success"
+                $script:Stats.Deleted++
+            } catch {
+                Write-Log "  [REGVALSKIP] $ieMainPath\Identity 不存在或无法删除" -Level "Info"
+                $script:Stats.Skipped++
+            }
+        }
+    }
     if (-not $script:TestMode) {
         try { reg delete "HKU\.DEFAULT\Software\Microsoft\IdentityCRL" /f 2>$null | Out-Null } catch { }
         try {
             $sidPaths = Get-ChildItem "Registry::HKEY_USERS" -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match "^S-1-5-21-" }
             foreach ($sidPath in $sidPaths) {
                 $identityCRLPath = Join-Path $sidPath.PSPath "Software\Microsoft\IdentityCRL"
-                if (Test-Path $identityCRLPath) {
-                    Remove-Item -LiteralPath $identityCRLPath -Recurse -Force -ErrorAction SilentlyContinue
-                    Write-Log "  已删除: $($sidPath.PSChildName)\Software\Microsoft\IdentityCRL"
-                }
+                # 统一走 Remove-PathSafe 以进入统计与日志（Remove-Item -LiteralPath 支持 HKU 下的注册表路径）
+                Remove-PathSafe -Path $identityCRLPath -Stage "M20.5 HKU"
             }
         } catch { Add-ErrorItem -Stage "M20.5 Reg" -Message "HKU 清理: $($_.Exception.Message)" }
     } else {
@@ -939,7 +970,8 @@ function Invoke-M20MicrosoftUltimate {
         cmdkey /list 2>$null | ForEach-Object {
             if ($_ -match '^\s*(Target|目标)\s*:\s*(.+)$') {
                 $target = $Matches[2].Trim()
-                if ($target) { cmdkey /delete:$target 2>$null; Write-Log "  已删除凭据: $target" }
+                # target 可能含空格（如 TERMSRV:host），需用引号包裹避免被解析为多个参数
+                if ($target) { cmdkey "/delete:$target" 2>$null; Write-Log "  已删除凭据: $target" }
             }
         }
     }
@@ -994,7 +1026,13 @@ function Invoke-M20MicrosoftUltimate {
     }
     $logs = @("Application", "Security", "System", "Setup", "ForwardedEvents", "Microsoft-Windows-PowerShell/Operational", "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational", "Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational", "Windows PowerShell")
     foreach ($logName in $logs) {
-        try { WevtUtil cl "$logName" 2>&1 | Out-Null; Write-Log "  已清空 $logName" } catch { Add-ErrorItem -Stage "M20.8 EventLog" -Message "$logName : $($_.Exception.Message)" }
+        # WevtUtil 是原生程序，失败时设 $LASTEXITCODE 而非抛异常，需检查退出码而非依赖 catch
+        WevtUtil cl "$logName" 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Log "  已清空 $logName"
+        } else {
+            Add-ErrorItem -Stage "M20.8 EventLog" -Message "$logName : WevtUtil 退出码 $LASTEXITCODE"
+        }
     }
     # 额外枚举（限制数量避免耗时过长）
     try {
@@ -1003,7 +1041,8 @@ function Invoke-M20MicrosoftUltimate {
         $maxExtra = 200
         foreach ($log in $extraLogs) {
             if ($cleared -ge $maxExtra) { Write-Log "  达到上限 $maxExtra，停止额外清理" -Level "Warning"; break }
-            try { WevtUtil cl "$log" 2>&1 | Out-Null; $cleared++ } catch { }
+            WevtUtil cl "$log" 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { $cleared++ }
         }
         Write-Log "  额外清理 $cleared 个运营日志"
     } catch { Add-ErrorItem -Stage "M20.8 ExtraLogs" -Message $_.Exception.Message }
@@ -1206,7 +1245,11 @@ Write-Host "  3. 浏览器首次启动会像新安装一样，需重新配置" -
 Write-Host "  4. 如需转让电脑，建议执行「重置此电脑」彻底清理" -ForegroundColor White
 Write-Host ""
 Write-Host "📌 操作日志：" -ForegroundColor Cyan
-Write-Host "   $script:LogFile" -ForegroundColor Gray
+if ($script:TranscriptActive) {
+    Write-Host "   $script:LogFile" -ForegroundColor Gray
+} else {
+    Write-Host "   ⚠️ 日志未生成（Start-Transcript 启动失败），上述输出即为全部记录" -ForegroundColor Yellow
+}
 Write-Host ""
 try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
 pause
