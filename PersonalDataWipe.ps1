@@ -274,7 +274,7 @@ $totalSteps = $selectedModules.Count
 # ---------- M01: 临时文件与缓存 ----------
 function Invoke-M01Temp {
     Write-Log "[M01] 清理临时文件与缓存..." "Step"
-    # $env:TEMP 通常等于 $env:LOCALAPPDATA\Temp，去重避免重复扫描
+    # 清理 TEMP 与 INetCache 下的子项（Sort-Object -Unique 防止二者恰好相同时重复扫描）
     $tempPaths = @("$env:TEMP", "$env:LOCALAPPDATA\Microsoft\Windows\INetCache") | Sort-Object -Unique
     foreach ($tp in $tempPaths) {
         if (Test-Path $tp) {
@@ -323,11 +323,15 @@ function Invoke-M02RecycleBin {
                 }
             }
         }
-        Write-Log "  回收站已清空"
+        if ($script:TestMode) {
+            Write-Log "  回收站扫描完成（测试模式未实际删除）"
+        } else {
+            Write-Log "  回收站已清空"
+        }
     } catch {
         Add-ErrorItem -Stage "M02" -Message $_.Exception.Message
     } finally {
-        if ($shell) { try { [System.Runtime.Interopservices.Marshal]::ReleaseComObject($shell) | Out-Null } catch { } }
+        if ($shell) { try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null } catch { } }
     }
     Write-Log "[M02] 完成" "Success"
 }
@@ -335,12 +339,11 @@ function Invoke-M02RecycleBin {
 # ---------- M03: 系统使用痕迹 ----------
 function Invoke-M03Traces {
     Write-Log "[M03] 清理系统使用痕迹..." "Step"
-    # 资源管理器 Recent
+    # 资源管理器 Recent（AutomaticDestinations / CustomDestinations 为标准 Jumplist 子目录）
     @(
         "$env:APPDATA\Microsoft\Windows\Recent",
         "$env:APPDATA\Microsoft\Windows\Recent\AutomaticDestinations",
-        "$env:APPDATA\Microsoft\Windows\Recent\CustomDestinations",
-        "$env:APPDATA\Microsoft\Windows\Recent\Destinations"
+        "$env:APPDATA\Microsoft\Windows\Recent\CustomDestinations"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M03 Recent" }
     # INetCache / History
     @(
@@ -431,6 +434,12 @@ function Invoke-M06Screenshot {
         "$env:APPDATA\Everything\Everything.ini",
         "$env:LOCALAPPDATA\Everything"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M06 Everything" }
+    # Listary 搜索历史与配置
+    Stop-ProcessAndWait -ProcessNames @("Listary", "ListaryUserAssistant") -TimeoutSeconds 5 | Out-Null
+    @(
+        "$env:APPDATA\Listary",
+        "$env:LOCALAPPDATA\Listary"
+    ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M06 Listary" }
     Write-Log "[M06] 完成" "Success"
 }
 
@@ -442,6 +451,7 @@ function Invoke-M07Browsers {
         @{ Name = "Chrome"; Path = "$env:LOCALAPPDATA\Google\Chrome\User Data";   Procs = @("chrome") }
         @{ Name = "Firefox";Path = "$env:APPDATA\Mozilla\Firefox\Profiles";       Procs = @("firefox") }
         @{ Name = "Brave";  Path = "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data"; Procs = @("brave") }
+        @{ Name = "Opera";  Path = "$env:APPDATA\Opera Software\Opera Stable";    Procs = @("opera") }
         @{ Name = "Vivaldi";Path = "$env:LOCALAPPDATA\Vivaldi\User Data";          Procs = @("vivaldi") }
     )
     foreach ($b in $browsers) {
@@ -519,9 +529,13 @@ function Invoke-M11Meeting {
     # Zoom
     Stop-ProcessAndWait -ProcessNames @("Zoom") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\Zoom", "$env:LOCALAPPDATA\Zoom") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M11 Zoom" }
-    # Teams（账户部分已在 M20 处理，这里清缓存）
-    Stop-ProcessAndWait -ProcessNames @("Teams") -TimeoutSeconds 8 | Out-Null
+    # Teams（账户部分已在 M20 处理，这里清缓存；含旧版 Teams 与新版 MSTeams）
+    Stop-ProcessAndWait -ProcessNames @("Teams", "ms-teams") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\Microsoft\Teams\Cache", "$env:APPDATA\Microsoft\Teams\GPUCache", "$env:APPDATA\Microsoft\Teams\Local Storage") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M11 Teams" }
+    # 新版 Teams (MSTeams) 为 MSIX 应用，包目录名形如 MSTeams_8wekyb3d8bbwe，需先展开通配符
+    Get-Item -Path "$env:LOCALAPPDATA\Packages\MSTeams_*" -ErrorAction SilentlyContinue | ForEach-Object {
+        @("$($_.FullName)\LocalCache\Microsoft\Teams", "$($_.FullName)\LocalCache\LBStorage", "$($_.FullName)\AC") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M11 MSTeams" }
+    }
     # 腾讯会议
     Stop-ProcessAndWait -ProcessNames @("wemeetapp") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\Tencent\WeMeet", "$env:LOCALAPPDATA\Tencent\WeMeet") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M11 WeMeet" }
@@ -587,7 +601,7 @@ function Invoke-M14DbTools {
     # Navicat
     Stop-ProcessAndWait -ProcessNames @("navicat", "navicat15", "navicat16", "navicat17") -TimeoutSeconds 8 | Out-Null
     @("HKCU:\Software\PremiumSoft\NaviCat", "HKCU:\Software\PremiumSoft\NavicatPremium", "HKCU:\Software\PremiumSoft\Navicat") | ForEach-Object { Remove-RegistryKey -Path $_ -Stage "M14 Navicat" }
-    Get-ChildItem "$env:APPDATA\PremiumSoft" -ErrorAction SilentlyContinue | ForEach-Object { Remove-PathSafe -Path $_.FullName -Stage "M14 Navicat" }
+    Get-ChildItem -LiteralPath "$env:APPDATA\PremiumSoft" -ErrorAction SilentlyContinue | ForEach-Object { Remove-PathSafe -Path $_.FullName -Stage "M14 Navicat" }
     # DBeaver
     Stop-ProcessAndWait -ProcessNames @("dbeaver") -TimeoutSeconds 8 | Out-Null
     @(
@@ -606,9 +620,9 @@ function Invoke-M14DbTools {
             }
         }
     }
-    # MySQL Workbench
+    # MySQL Workbench（删除整个 Workbench 目录即包含 connections.xml，无需单独列出）
     Stop-ProcessAndWait -ProcessNames @("MySQLWorkbench") -TimeoutSeconds 8 | Out-Null
-    @("$env:APPDATA\MySQL\Workbench", "$env:APPDATA\MySQL\Workbench\connections.xml") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M14 MySQLWB" }
+    Remove-PathSafe -Path "$env:APPDATA\MySQL\Workbench" -Stage "M14 MySQLWB"
     # Redis / Mongo 工具
     @("$env:APPDATA\Redis Desktop Manager", "$env:APPDATA\RedisInsight", "$env:USERPROFILE\.redisinsight", "$env:APPDATA\3T Software Labs", "$env:APPDATA\Robomongo", "$env:LOCALAPPDATA\Robomongo") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M14 NoSQL" }
     Write-Log "[M14] 完成" "Success"
@@ -762,7 +776,7 @@ function Invoke-M19DevTools {
     Stop-ProcessAndWait -ProcessNames @("Cursor") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\Cursor\User\globalStorage", "$env:APPDATA\Cursor\User\workspaceStorage", "$env:APPDATA\Cursor\storage") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 Cursor" }
     # JetBrains
-    Get-ChildItem "$env:APPDATA\JetBrains" -ErrorAction SilentlyContinue | ForEach-Object {
+    Get-ChildItem -LiteralPath "$env:APPDATA\JetBrains" -ErrorAction SilentlyContinue | ForEach-Object {
         $optionsDir = Join-Path $_.FullName "options"
         if (Test-Path $optionsDir) {
             Get-ChildItem $optionsDir -Filter "*.xml" -ErrorAction SilentlyContinue | Where-Object {
@@ -907,7 +921,8 @@ function Invoke-M20MicrosoftUltimate {
     # 4. 预配应用
     Write-Log "[M20.4] 重置预配应用..." "Step"
     $userApps = Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -match '^(Microsoft\.(AccountsControl|AAD\.BrokerPlugin|WindowsCommunicationsApps|WindowsStore|MicrosoftEdge|Office\.Hub|OneDriveSync|SkypeApp|Teams|YourPhone|Windows\.CloudExperienceHost))'
+        # 含新版 Teams（MSTeams，无 Microsoft. 前缀）
+        $_.Name -match '^(Microsoft\.(AccountsControl|AAD\.BrokerPlugin|WindowsCommunicationsApps|WindowsStore|MicrosoftEdge|Office\.Hub|OneDriveSync|SkypeApp|Teams|YourPhone|Windows\.CloudExperienceHost)|MSTeams)'
     }
     foreach ($app in $userApps) {
         try {
@@ -964,7 +979,8 @@ function Invoke-M20MicrosoftUltimate {
     Write-Log "[M20.6] 清空凭据管理器..." "Step"
     if ($script:TestMode) {
         $credList = cmdkey /list 2>$null
-        $credCount = ($credList | Select-String '^\s*(Target|目标)\s*:\s*(.+)$').Count
+        # 用 @() 包裹防止 $credList 为 null 时 .Count 异常
+        $credCount = @($credList | Select-String '^\s*(Target|目标)\s*:\s*(.+)$').Count
         Write-Log "  [TEST] 将清空凭据管理器（约 $credCount 条）" -Level "Warning"
     } else {
         cmdkey /list 2>$null | ForEach-Object {
