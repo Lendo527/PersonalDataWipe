@@ -407,7 +407,7 @@ function Invoke-M05Downloads {
         "$env:APPDATA\Thunder",
         "$env:APPDATA\Thunder Network",
         "$env:LOCALAPPDATA\Thunder",
-        "$env:PROGRAMDATA\Thunder Network"
+        "$env:ProgramData\Thunder Network"
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M05 Thunder" }
     # qBittorrent / uTorrent
     Stop-ProcessAndWait -ProcessNames @("qbittorrent", "uTorrent") -TimeoutSeconds 8 | Out-Null
@@ -484,6 +484,9 @@ function Invoke-M08IM {
     # Discord
     Stop-ProcessAndWait -ProcessNames @("Discord") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\discord", "$env:LOCALAPPDATA\discord") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M08 Discord" }
+    # Slack
+    Stop-ProcessAndWait -ProcessNames @("slack") -TimeoutSeconds 8 | Out-Null
+    @("$env:APPDATA\Slack", "$env:LOCALAPPDATA\Slack") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M08 Slack" }
     # 钉钉 / 飞书
     Stop-ProcessAndWait -ProcessNames @("DingTalk", "Lark", "Feishu") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\DingTalk", "$env:LOCALAPPDATA\DingTalk", "$env:APPDATA\Lark", "$env:LOCALAPPDATA\Lark", "$env:APPDATA\Feishu") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M08 WorkIM" }
@@ -493,6 +496,9 @@ function Invoke-M08IM {
 # ---------- M09: 邮件客户端 ----------
 function Invoke-M09Mail {
     Write-Log "[M09] 清理邮件客户端..." "Step"
+    # Outlook（OST/IMAP 缓存含全部邮件/联系人/日历，是重大个人数据）
+    Stop-ProcessAndWait -ProcessNames @("OUTLOOK") -TimeoutSeconds 8 | Out-Null
+    @("$env:LOCALAPPDATA\Microsoft\Outlook", "$env:APPDATA\Microsoft\Outlook") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M09 Outlook" }
     # Thunderbird
     Stop-ProcessAndWait -ProcessNames @("thunderbird") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\Thunderbird\Profiles", "$env:APPDATA\Thunderbird\profiles.ini", "$env:APPDATA\Thunderbird\registry.dat") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M09 Thunderbird" }
@@ -613,9 +619,9 @@ function Invoke-M14DbTools {
     # SSMS（Stop-Process -Name 大小写不敏感，Ssms 与 ssms 等价，仅需其一）
     Stop-ProcessAndWait -ProcessNames @("Ssms") -TimeoutSeconds 8 | Out-Null
     Remove-PathSafe -Path "$env:APPDATA\Microsoft\SQL Server Management Studio" -Stage "M14 SSMS"
-    Get-ChildItem "HKCU:\Software\Microsoft\SQL Server Management Studio" -ErrorAction SilentlyContinue | ForEach-Object {
-        Get-ChildItem $_.PSPath -ErrorAction SilentlyContinue | ForEach-Object {
-            Get-ChildItem $_.PSPath -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match "Server|Connection" } | ForEach-Object {
+    Get-ChildItem -LiteralPath "HKCU:\Software\Microsoft\SQL Server Management Studio" -ErrorAction SilentlyContinue | ForEach-Object {
+        Get-ChildItem -LiteralPath $_.PSPath -ErrorAction SilentlyContinue | ForEach-Object {
+            Get-ChildItem -LiteralPath $_.PSPath -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match "Server|Connection" } | ForEach-Object {
                 Remove-RegistryKey -Path $_.PSPath -Stage "M14 SSMS"
             }
         }
@@ -654,16 +660,16 @@ function Invoke-M15Remote {
     @("HKCU:\Software\TeamViewer", "HKCU:\Software\Wow6432Node\TeamViewer") | ForEach-Object { Remove-RegistryKey -Path $_ -Stage "M15 TV" }
     # AnyDesk
     Stop-ProcessAndWait -ProcessNames @("AnyDesk") -TimeoutSeconds 8 | Out-Null
-    @("$env:APPDATA\AnyDesk", "$env:LOCALAPPDATA\AnyDesk", "$env:PROGRAMDATA\AnyDesk") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M15 AnyDesk" }
+    @("$env:APPDATA\AnyDesk", "$env:LOCALAPPDATA\AnyDesk", "$env:ProgramData\AnyDesk") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M15 AnyDesk" }
     # 向日葵
     Stop-ProcessAndWait -ProcessNames @("SunloginClient", "SunloginRemote") -TimeoutSeconds 8 | Out-Null
-    @("$env:APPDATA\Oray\SunloginClient", "$env:LOCALAPPDATA\Oray\SunloginClient", "$env:PROGRAMDATA\Oray\SunloginClient") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M15 Sunlogin" }
+    @("$env:APPDATA\Oray\SunloginClient", "$env:LOCALAPPDATA\Oray\SunloginClient", "$env:ProgramData\Oray\SunloginClient") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M15 Sunlogin" }
     # ToDesk
     Stop-ProcessAndWait -ProcessNames @("ToDesk") -TimeoutSeconds 8 | Out-Null
-    @("$env:APPDATA\ToDesk", "$env:LOCALAPPDATA\ToDesk", "$env:PROGRAMDATA\ToDesk") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M15 ToDesk" }
+    @("$env:APPDATA\ToDesk", "$env:LOCALAPPDATA\ToDesk", "$env:ProgramData\ToDesk") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M15 ToDesk" }
     # RustDesk
     Stop-ProcessAndWait -ProcessNames @("RustDesk") -TimeoutSeconds 8 | Out-Null
-    @("$env:APPDATA\RustDesk", "$env:LOCALAPPDATA\RustDesk", "$env:PROGRAMDATA\RustDesk") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M15 RustDesk" }
+    @("$env:APPDATA\RustDesk", "$env:LOCALAPPDATA\RustDesk", "$env:ProgramData\RustDesk") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M15 RustDesk" }
     # FileZilla（明文密码！）
     Stop-ProcessAndWait -ProcessNames @("filezilla") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\FileZilla\recentservers.xml", "$env:APPDATA\FileZilla\sitemanager.xml", "$env:APPDATA\FileZilla\filezilla.xml") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M15 FileZilla" }
@@ -675,7 +681,7 @@ function Invoke-M16GameCreative {
     Write-Log "[M16] 清理游戏与创意软件..." "Step"
     # Unity Hub
     Stop-ProcessAndWait -ProcessNames @("Unity Hub", "Unity") -TimeoutSeconds 8 | Out-Null
-    @("$env:APPDATA\UnityHub", "$env:APPDATA\UnityHub-Secondary", "$env:USERPROFILE\.unity", "$env:LOCALAPPDATA\Unity", "$env:PROGRAMDATA\Unity") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M16 Unity" }
+    @("$env:APPDATA\UnityHub", "$env:APPDATA\UnityHub-Secondary", "$env:USERPROFILE\.unity", "$env:LOCALAPPDATA\Unity", "$env:ProgramData\Unity") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M16 Unity" }
     Remove-RegistryKey -Path "HKCU:\Software\Unity Technologies" -Stage "M16 Unity"
     # Steam
     Stop-ProcessAndWait -ProcessNames @("steam", "steamwebhelper") -TimeoutSeconds 8 | Out-Null
@@ -691,7 +697,7 @@ function Invoke-M16GameCreative {
     @("$env:LOCALAPPDATA\EpicGames\EpicGamesLauncher\Saved\Config", "$env:LOCALAPPDATA\EpicGames\EpicGamesLauncher\Saved\Logs", "$env:LOCALAPPDATA\EpicGames\EpicGamesLauncher\Saved\webengine") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M16 Epic" }
     # Battle.net / EA / Ubisoft / Riot / GOG
     Stop-ProcessAndWait -ProcessNames @("Battle.net", "EADesktop", "UbisoftConnect", "UbisoftGameLauncher", "RiotClient", "GOG Galaxy") -TimeoutSeconds 8 | Out-Null
-    @("$env:APPDATA\Battle.net", "$env:LOCALAPPDATA\Battle.net", "$env:PROGRAMDATA\Electronic Arts", "$env:LOCALAPPDATA\Electronic Arts", "$env:LOCALAPPDATA\Ubisoft Game Launcher\save", "$env:LOCALAPPDATA\Ubisoft Game Launcher\logs", "$env:APPDATA\Riot Client", "$env:LOCALAPPDATA\Riot Client", "$env:PROGRAMDATA\GOG.com") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M16 GamePlatform" }
+    @("$env:APPDATA\Battle.net", "$env:LOCALAPPDATA\Battle.net", "$env:ProgramData\Electronic Arts", "$env:LOCALAPPDATA\Electronic Arts", "$env:LOCALAPPDATA\Ubisoft Game Launcher\save", "$env:LOCALAPPDATA\Ubisoft Game Launcher\logs", "$env:APPDATA\Riot Client", "$env:LOCALAPPDATA\Riot Client", "$env:ProgramData\GOG.com") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M16 GamePlatform" }
     # Adobe Creative Cloud
     Stop-ProcessAndWait -ProcessNames @("Creative Cloud", "Adobe CEF Helper", "Creative-Cloud-Installer") -TimeoutSeconds 8 | Out-Null
     @("$env:APPDATA\Adobe", "$env:LOCALAPPDATA\Adobe", "$env:USERPROFILE\.adobe") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M16 Adobe" }
@@ -728,9 +734,9 @@ function Invoke-M17NetworkTunnel {
     @("$env:APPDATA\NordVPN", "$env:LOCALAPPDATA\NordVPN", "$env:APPDATA\ExpressVPN", "$env:LOCALAPPDATA\ExpressVPN", "$env:APPDATA\Atlas VPN", "$env:LOCALAPPDATA\Atlas VPN") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M17 Commercial" }
     # Tailscale / ZeroTier（Mesh 组网）
     Stop-ProcessAndWait -ProcessNames @("tailscaled", "tailscale-ipn", "Tailscale") -TimeoutSeconds 8 | Out-Null
-    @("$env:LOCALAPPDATA\Tailscale", "$env:APPDATA\Tailscale", "$env:PROGRAMDATA\Tailscale") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M17 Tailscale" }
+    @("$env:LOCALAPPDATA\Tailscale", "$env:APPDATA\Tailscale", "$env:ProgramData\Tailscale") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M17 Tailscale" }
     Stop-ProcessAndWait -ProcessNames @("zerotier-one", "ZeroTierOne") -TimeoutSeconds 8 | Out-Null
-    @("$env:PROGRAMDATA\ZeroTier\One", "$env:LOCALAPPDATA\ZeroTier") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M17 ZeroTier" }
+    @("$env:ProgramData\ZeroTier\One", "$env:LOCALAPPDATA\ZeroTier") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M17 ZeroTier" }
     # Sing-box
     Stop-ProcessAndWait -ProcessNames @("sing-box") -TimeoutSeconds 5 | Out-Null
     @("$env:USERPROFILE\.config\sing-box", "$env:APPDATA\sing-box") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M17 SingBox" }
@@ -749,8 +755,8 @@ function Invoke-M18VCS {
     ) | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M18 Git" }
     Remove-RegistryKey -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Git-Credential-Manager" -Stage "M18 Git"
     @("$env:APPDATA\Git-Credential-Manager-for-Windows", "$env:LOCALAPPDATA\Git-Credential-Manager", "$env:LOCALAPPDATA\Programs\GitCredentialManager") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M18 Git" }
-    # SVN
-    @("$env:APPDATA\Subversion\auth", "$env:APPDATA\Subversion\auth\svn.simple", "$env:APPDATA\Subversion\auth\svn.username") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M18 SVN" }
+    # SVN（删除 auth 即包含 svn.simple / svn.username 子目录，无需单独列出）
+    Remove-PathSafe -Path "$env:APPDATA\Subversion\auth" -Stage "M18 SVN"
     # Mercurial
     @("$env:USERPROFILE\.hgrc", "$env:USERPROFILE\Mercurial.ini") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M18 Hg" }
     Write-Log "[M18] 完成" "Success"
@@ -788,24 +794,7 @@ function Invoke-M19DevTools {
     Stop-ProcessAndWait -ProcessNames @("devenv") -TimeoutSeconds 8 | Out-Null
     @("$env:LOCALAPPDATA\Microsoft\VisualStudio", "$env:LOCALAPPDATA\Microsoft\VSCommon", "$env:APPDATA\Microsoft\VisualStudio\OnlineSettingsCache", "$env:LOCALAPPDATA\Microsoft\IdentityService") | ForEach-Object { Remove-PathSafe -Path $_ -Stage "M19 VSPro" }
     # 注意：.nuget\packages 是构建产物缓存（不含个人数据/凭证，可重新下载），不再删除以避免下次构建重新下载数 GB
-    # Docker
-    $dockerConfig = "$env:USERPROFILE\.docker\config.json"
-    if (Test-Path $dockerConfig) {
-        if ($script:TestMode) {
-            Write-Log "  [TEST] 将清空 Docker config.json 的 auths 段" -Level "Warning"
-        } else {
-            try {
-                $json = Get-Content $dockerConfig -Raw | ConvertFrom-Json
-                if ($json.auths) {
-                    $json.auths = @{}
-                    $json | ConvertTo-Json -Depth 10 | Set-Content $dockerConfig -Force
-                    Write-Log "  已清空 Docker config.json 的 auths 段"
-                }
-            } catch {
-                Remove-PathSafe -Path $dockerConfig -Stage "M19 Docker"
-            }
-        }
-    }
+    # Docker：.docker 整目录在下方 VM 段统一删除（含 config.json 的 auths 凭证），无需单独处理
     # 云 CLI
     @(
         "$env:USERPROFILE\.aws\credentials",
@@ -963,7 +952,12 @@ function Invoke-M20MicrosoftUltimate {
         }
     }
     if (-not $script:TestMode) {
-        try { reg delete "HKU\.DEFAULT\Software\Microsoft\IdentityCRL" /f 2>$null | Out-Null } catch { }
+        # reg.exe 是原生程序，失败时设 $LASTEXITCODE 而非抛异常，需检查退出码
+        reg delete "HKU\.DEFAULT\Software\Microsoft\IdentityCRL" /f 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) {
+            # 退出码 1 通常表示键不存在，属正常情况；其他码记为错误
+            Add-ErrorItem -Stage "M20.5 Reg" -Message "HKU\.DEFAULT IdentityCRL: reg 退出码 $LASTEXITCODE"
+        }
         try {
             $sidPaths = Get-ChildItem "Registry::HKEY_USERS" -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match "^S-1-5-21-" }
             foreach ($sidPath in $sidPaths) {
