@@ -461,6 +461,8 @@ function Invoke-M07Browsers {
             Remove-PathSafe -Path $b.Path -Stage "M07 $($b.Name)"
         }
     }
+    # Edge 账户信息除 User Data 外还缓存在注册表 Profiles 子键，仅删目录重启后 Edge 会从注册表恢复账户显示
+    Remove-RegistryKey -Path "HKCU:\Software\Microsoft\Edge\Profiles" -Stage "M07 Edge"
     # Firefox 全局配置
     Remove-PathSafe -Path "$env:APPDATA\Mozilla\Firefox\profiles.ini" -Stage "M07 Firefox"
     Write-Log "[M07] 完成" "Success"
