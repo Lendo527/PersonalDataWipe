@@ -103,14 +103,32 @@ cd PersonalDataWipe
 
 或直接下载 [`PersonalDataWipe.ps1`](./PersonalDataWipe.ps1) 单文件。
 
-### 2. 以管理员身份运行 PowerShell
+### 2. 设置 PowerShell 执行策略（首次运行必读）
+
+PowerShell 默认执行策略为 `Restricted`，会阻止本地未签名脚本运行，运行时会提示"无法加载，因为在此系统上禁止运行脚本"或"没有数字签名"。
+
+以管理员身份打开 PowerShell，执行一次以下命令即可永久放行本地脚本：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+- `RemoteSigned` = 本地脚本可直接运行，从网络下载的脚本仍需数字签名
+- `-Scope CurrentUser` 仅影响当前用户，无需改动全局策略
+- 此命令只需执行一次，以后永久生效
+
+执行后会提示确认，输入 `Y` 即可。之后可直接运行 `.\PersonalDataWipe.ps1`。
+
+> 说明：本脚本为个人工具，未购买代码签名证书。`RemoteSigned` 是 Windows 官方推荐的本地开发策略，安全性与可用性平衡较好。
+
+### 3. 以管理员身份运行 PowerShell
 
 > 实际清理模式必须管理员权限，否则脚本会直接退出。
 
 - 右键开始菜单 → "Windows PowerShell (管理员)" 或 "终端 (管理员)"
 - `cd` 到脚本所在目录
 
-### 3. （强烈推荐）先用测试模式扫描
+### 4. （强烈推荐）先用测试模式扫描
 
 ```powershell
 $env:WIPE_TEST_MODE='1'
@@ -123,7 +141,7 @@ $env:WIPE_TEST_MODE='1'
 - 对每个会删除的目标只输出 `[TEST][FOUND] 路径`
 - **绝对不删除任何文件**
 
-### 4. 执行真实清理
+### 5. 执行真实清理
 
 ```powershell
 .\PersonalDataWipe.ps1
@@ -131,7 +149,7 @@ $env:WIPE_TEST_MODE='1'
 
 输入 `Y` 确认后开始执行。所有模块按顺序自动运行，无需干预。
 
-### 5. 执行完毕
+### 6. 执行完毕
 
 - 查看桌面日志 `PersonalDataWipe_<时间戳>.log`
 - 建议重启电脑后再次以测试模式跑一遍，确认无残留
@@ -261,6 +279,16 @@ M16 会清除 Steam 的 `ssfn*` 文件与 `loginusers.vdf`，下次打开 Steam 
 ---
 
 ## 常见问题
+
+### Q: 运行时提示"无法加载脚本，因为在此系统上禁止运行脚本"或"没有数字签名"？
+
+A: 这是 PowerShell 默认执行策略 `Restricted` 阻止了未签名本地脚本。以管理员身份执行一次：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+输入 `Y` 确认后即可永久运行本地脚本。详见上文"使用方法 → 步骤 2"。
 
 ### Q: 跑完之后某些软件还在自动登录？
 
