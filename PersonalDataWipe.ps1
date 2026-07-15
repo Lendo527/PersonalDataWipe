@@ -928,10 +928,26 @@ function Invoke-M20MicrosoftUltimate {
             }
         } catch { Add-ErrorItem -Stage "M20.4 Appx" -Message "$($app.Name): $($_.Exception.Message)" }
     }
-    # 5. 微软注册表
+    # 5. 微软注册表（WAM 账户缓存）
     Write-Log "[M20.5] 清理微软账户注册表..." "Step"
-    # IdentityCRL / IdentityStore 是子键，直接删除
-    @("HKCU:\Software\Microsoft\IdentityCRL", "HKCU:\Software\Microsoft\IdentityStore") | ForEach-Object { Remove-RegistryKey -Path $_ -Stage "M20.5 Reg" }
+    # WAM Token Broker 与 wlidsvc 服务会实时重建账户缓存，删除期间必须先停服务，否则删了也会被秒写回
+    $wamServices = @("TokenBroker", "wlidsvc")
+    if ($script:TestMode) {
+        Write-Log "  [TEST] 将停止服务: $($wamServices -join ', ') 并删除 IdentityStore/IdentityCRL/ProtectedStorage" -Level "Warning"
+    } else {
+        foreach ($svc in $wamServices) {
+            try {
+                Stop-Service -Name $svc -Force -ErrorAction Stop
+                Write-Log "  已停止服务: $svc"
+            } catch { Add-ErrorItem -Stage "M20.5 Reg" -Message "停止服务 $svc 失败: $($_.Exception.Message)" }
+        }
+    }
+    # IdentityStore 含 Cache/Privileged 子键（账户列表缓存）；ProtectedStorage 为账户映射；IdentityCRL 为登录态
+    @(
+        "HKCU:\Software\Microsoft\IdentityCRL",
+        "HKCU:\Software\Microsoft\IdentityStore",
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\ProtectedStorage"
+    ) | ForEach-Object { Remove-RegistryKey -Path $_ -Stage "M20.5 Reg" }
     # IE Main\Identity 通常是 DWORD 值而非子键，Test-Path 对值返回 false 会静默跳过，需用 Remove-ItemProperty
     $ieMainPath = "HKCU:\Software\Microsoft\Internet Explorer\Main"
     if (Test-Path $ieMainPath) {
@@ -968,6 +984,13 @@ function Invoke-M20MicrosoftUltimate {
                 Remove-PathSafe -Path $identityCRLPath -Stage "M20.5 HKU"
             }
         } catch { Add-ErrorItem -Stage "M20.5 Reg" -Message "HKU 清理: $($_.Exception.Message)" }
+        # 删完重启 WAM 服务（否则 Edge/Office 等无法登录新账户）
+        foreach ($svc in $wamServices) {
+            try {
+                Start-Service -Name $svc -ErrorAction Stop
+                Write-Log "  已启动服务: $svc"
+            } catch { Add-ErrorItem -Stage "M20.5 Reg" -Message "启动服务 $svc 失败: $($_.Exception.Message)" }
+        }
     } else {
         Write-Log "  [TEST] 将清理 HKU IdentityCRL" -Level "Warning"
     }
