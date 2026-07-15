@@ -121,6 +121,22 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 > 说明：本脚本为个人工具，未购买代码签名证书。`RemoteSigned` 是 Windows 官方推荐的本地开发策略，安全性与可用性平衡较好。
 
+#### 已设了 RemoteSigned 还是提示"未数字签名"？
+
+从网络（GitHub、邮件、网盘等）下载的文件会被 Windows 打上"来自互联网"的标记（Mark of the Web）。`RemoteSigned` 策略要求**带此标记的文件必须有签名**，所以即使设了策略仍会被拦。执行以下命令解除标记（只需一次）：
+
+```powershell
+Unblock-File .\PersonalDataWipe.ps1
+```
+
+之后即可正常运行 `.\PersonalDataWipe.ps1`。也可以在文件资源管理器里右键 → 属性 → 勾选"解除锁定"。
+
+如果 `Unblock-File` 后仍报错，可能是公司组策略（GPO）覆盖了用户设置。运行 `Get-ExecutionPolicy -List` 查看，若 `MachinePolicy`/`UserPolicy` 为 `AllSigned`/`Restricted` 则无法修改，此时只能临时绕过：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\PersonalDataWipe.ps1
+```
+
 ### 3. 以管理员身份运行 PowerShell
 
 > 实际清理模式必须管理员权限，否则脚本会直接退出。
@@ -282,13 +298,12 @@ M16 会清除 Steam 的 `ssfn*` 文件与 `loginusers.vdf`，下次打开 Steam 
 
 ### Q: 运行时提示"无法加载脚本，因为在此系统上禁止运行脚本"或"没有数字签名"？
 
-A: 这是 PowerShell 默认执行策略 `Restricted` 阻止了未签名本地脚本。以管理员身份执行一次：
+A: 分两步处理：
 
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-```
+1. 设置执行策略（一次永久生效）：`Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
+2. 如果是下载来的文件，还需解除网络下载标记：`Unblock-File .\PersonalDataWipe.ps1`
 
-输入 `Y` 确认后即可永久运行本地脚本。详见上文"使用方法 → 步骤 2"。
+详见上文"使用方法 → 步骤 2"。
 
 ### Q: 跑完之后某些软件还在自动登录？
 
